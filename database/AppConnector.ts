@@ -1,5 +1,12 @@
 import { PowerSyncBackendConnector, CommonPowerSyncDatabase } from '@powersync/react-native';
 
+
+/**
+ * APPConnector manages the connection between the local op-sqlite offline database and
+ * the remote Spring Boot server. 
+ * 
+ */
+
 export class AppConnector implements PowerSyncBackendConnector {
 
     //First step is to authenticate with powersync service
@@ -8,10 +15,10 @@ export class AppConnector implements PowerSyncBackendConnector {
         //In production need to use a new token.
 
         return {
-            endpoint: 'https://6ac2adc63b1803753bcef1d0.powersync.journeyapps.com',
-            token: 'eyJhbGciOiJSUzI1NiIsImtpZCI6InBvd2Vyc3luYy1kZXYtMzIyM2Q0ZTMifQ.eyJzdWIiOiJ0ZXN0LWdyYWRlci0xIiwiaWF0IjoxNzkxMTQ5MDAxLCJpc3MiOiJodHRwczovL3Bvd2Vyc3luYy1hcGkuam91cm5leWFwcHMuY29tIiwiYXVkIjoiaHR0cHM6Ly82YWMyYWRjNjNiMTgwMzc1M2JjZWYxZDAucG93ZXJzeW5jLmpvdXJuZXlhcHBzLmNvbSIsImV4cCI6MTc5MTE5MjIwMX0.PD-mQIxzsOITObPMtKlF4UBLDJ42XHeiFlD7iDGmzalSG80Qces60tqnxr7NZR8SjiyjoHV0qnd0QIsg1D5XMCozwdQJVzzsPFhyXpiT4_G9ts2E7RUxQ7gw7bLFWLZfve7NDQuQKydYSByyhlnEmnskzgh7tquvOmFOLp9plCYGBAL99x0LaOqBFToOPbV87L5bZAtmHIe0ukWjkhEDAA9XhaOVJlDfwB5z9JT80myXTtCohBkRllgIHpiB_JmKyVR8MSnbiEZGL-Se9D67NF5CklHEjb_WS3PXIvLXkB-SgKiAMg6sVmUoRjKM3TfdvonNz9tWv7sdjsgO8ZA2eA'
-        };
+            endpoint: process.env.EXPO_PUBLIC_POWERSYNC_ENDPOINT || '',
+            token: process.env.EXPO_PUBLIC_POWERSYNC_TOKEN || ''
     }
+}
 
     //2nd step is upload local changes to springboot backend
     async uploadData(database: CommonPowerSyncDatabase) {
@@ -22,8 +29,7 @@ export class AppConnector implements PowerSyncBackendConnector {
 
         //HARDCODING TEMP TOKEN FOR TESTING, REPLACE FOR DYNAMIC TOKEN IN PRODUCTION
         //***************************************************************
-        const token = 'eyJhbGciOiJSUzI1NiIsImtpZCI6InBvd2Vyc3luYy1kZXYtMzIyM2Q0ZTMifQ.eyJzdWIiOiJ0ZXN0LWdyYWRlci0xIiwiaWF0IjoxNzkxMTQ5MDAxLCJpc3MiOiJodHRwczovL3Bvd2Vyc3luYy1hcGkuam91cm5leWFwcHMuY29tIiwiYXVkIjoiaHR0cHM6Ly82YWMyYWRjNjNiMTgwMzc1M2JjZWYxZDAucG93ZXJzeW5jLmpvdXJuZXlhcHBzLmNvbSIsImV4cCI6MTc5MTE5MjIwMX0.PD-mQIxzsOITObPMtKlF4UBLDJ42XHeiFlD7iDGmzalSG80Qces60tqnxr7NZR8SjiyjoHV0qnd0QIsg1D5XMCozwdQJVzzsPFhyXpiT4_G9ts2E7RUxQ7gw7bLFWLZfve7NDQuQKydYSByyhlnEmnskzgh7tquvOmFOLp9plCYGBAL99x0LaOqBFToOPbV87L5bZAtmHIe0ukWjkhEDAA9XhaOVJlDfwB5z9JT80myXTtCohBkRllgIHpiB_JmKyVR8MSnbiEZGL-Se9D67NF5CklHEjb_WS3PXIvLXkB-SgKiAMg6sVmUoRjKM3TfdvonNz9tWv7sdjsgO8ZA2eA';
-
+        const token = process.env.EXPO_PUBLIC_POWERSYNC_TOKEN;
         const SPRING_BOOT_BASE_URL = 'http://10.0.2.2:8080/api';
 
         try {
@@ -35,16 +41,47 @@ export class AppConnector implements PowerSyncBackendConnector {
                 let method = '';
                 let body = opData ? JSON.stringify({id, ...opData}) : null;
 
+
+                /**
+                 * Custom routing interceptor
+                 * SPring boot uses nested routes for boards to enforse strict relational boundries
+                 * This intercepts flat lumber_boards operations and formats them to /api/runs/{runId}/boards
+                 * 
+                 */
+                if (table === 'lumber_boards' && opData?.run_id) {
+                    endpoint = `${SPRING_BOOT_BASE_URL}/runs/${opData.run_id}/boards`;
+                }
+                else if (table === 'lumber_bundles') {
+                    //renaming route for bundles
+                    endpoint = `${SPRING_BOOT_BASE_URL}/bundles`;
+                }
+                else if (table === 'run_grades_allowed' && opData?.run_id) {
+                    endpoint = `${SPRING_BOOT_BASE_URL}/runs/${opData.run_id}/grades`;
+                }
+                else if (table === 'run_species_allowed' && opData?.run_id) {
+                    endpoint = `${SPRING_BOOT_BASE_URL}/runs/${opData.run_id}/species`;
+                }
+                else if (table === 'run_thicknesses_allowedd' && opData?.run_id) {
+                    endpoint = `${SPRING_BOOT_BASE_URL}/runs/${opData.run_id}/thicknesses`;
+                }
+                else if (table === 'lumber_bundle_lengths_included' && opData?.lumber_bundle_id) {
+                    endpoint = `${SPRING_BOOT_BASE_URL}/bundles/${opData.lumber_bundle_id}/lengths`;
+                }
+                //Add additional interceptors here if lumber_bundles or other tables are also nested
+                //===========================================
+
+                //Map powersync's offline operation to the correct HTTP method
                 if (op === 'PUT') {
-                    method = 'POST';
+                    method = 'POST'; //New records
                 }else if (op === 'PATCH') {
-                    method = 'PUT';
-                    endpoint = `${endpoint}/${id}`;
+                    method = 'PUT'; //Updates
+                    endpoint = `${endpoint}/${id}`; //Append ID for standard REST update
                 }else if (op === 'DELETE') {
-                    method = 'DELETE';
+                    method = 'DELETE'; //Deletions
                     endpoint = `${endpoint}/${id}`;
                 }
 
+                //Send the request to the Spring Boot server
                 const response = await fetch(endpoint, {
                     method: method,
                     headers: {
